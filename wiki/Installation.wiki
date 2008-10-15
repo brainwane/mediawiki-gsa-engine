@@ -1,8 +1,6 @@
 #summary Extension Installation
 #labels Featured,Phase-Deploy
 
-= Installation =
-
   * [http://mediawiki-gsa-engine.googlecode.com/svn/trunk/SearchGSA.php Download] or [http://code.google.com/p/mediawiki-gsa-engine/source/checkout Checkout] `SearchGSA.php`
   * Copy to `$MEDIAWIKI/extensions/SearchGSA.php`
   * Add the following to `LocalSettings.php`:
