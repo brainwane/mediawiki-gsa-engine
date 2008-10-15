@@ -20,19 +20,30 @@ class SearchGSA extends SearchEngine {
 	 */
 	function searchText( $term ) {
 		global $wgGSA, $wgServer;
-
-		$params = array( 'as_sitesearch' => $wgServer,
-				 'q' => $term,
-				 'site' => 'my_collection',
-				 'client' => 'my_collection',
-				 'output' => 'xml',
-				 'start' => $this->offset,
-				 'num' => $this->limit );
-		$request = sprintf("%s?%s", $wgGSA, http_build_query($params));
-		$xml = new SimpleXMLElement(file_get_contents($request));
+		
+		$xml = array();
+		$start = null;
+		$end = 0;
+		for ( $i=$this->offset; 
+			$i < $this->limit + $this->offset; 
+			$i += 100 ) 
+		{
+			$params = array( 'as_sitesearch' => $wgServer,
+					 'q' => $term,
+					 'site' => 'my_collection',
+					 'client' => 'my_collection',
+					 'output' => 'xml',
+					 'start' => $i,
+					 'num' => ( $this->limit > 100 ? 100 : $this->limit ) );
+			$request = sprintf("%s?%s", $wgGSA, http_build_query($params));
+			$new_xml = new SimpleXMLElement(file_get_contents($request));
+			$start = is_null($start) || $start > $new_xml->RES['SN'] ? $new_xml->RES['SN'] : $start;
+			$end = $end < $new_xml->RES['EN'] ? $new_xml->RES['EN'] : $end;
+			$xml[] = $new_xml;
+		}
 		//print "$request <br/>";
 
-		return new GSASearchResultSet($xml, array($term), $this->limit, $this->offset);
+		return new GSASearchResultSet($xml, array($term), $this->limit, $this->offset, $start, $end);
 	}
 
 	/**
@@ -45,19 +56,30 @@ class SearchGSA extends SearchEngine {
 	function searchTitle( $term ) {
 		global $wgGSA, $wgServer;
 
-		$params = array( 'as_sitesearch' => $wgServer,
-				 'as_occt' => 'title',
-				 'q' => $term,
-				 'site' => 'my_collection',
-				 'client' => 'my_collection',
-				 'output' => 'xml',
-				 'start' => $this->offset,
-				 'num' => $this->limit );
-		$request = sprintf("%s?%s", $wgGSA, http_build_query($params));
-		$xml = new SimpleXMLElement(file_get_contents($request));
+		$xml = array();
+		$start = null;
+		$end = 0;
+		for ( $i=$this->offset; 
+			$i < $this->limit + $this->offset; 
+			$i += 100 ) 
+		{
+			$params = array( 'as_sitesearch' => $wgServer,
+					 'as_occt' => 'title',
+					 'q' => $term,
+					 'site' => 'my_collection',
+					 'client' => 'my_collection',
+					 'output' => 'xml',
+					 'start' => $i,
+					 'num' => ( $this->limit > 100 ? 100 : $this->limit ) );
+			$request = sprintf("%s?%s", $wgGSA, http_build_query($params));
+			$new_xml = new SimpleXMLElement(file_get_contents($request));
+			$start = is_null($start) || $start > $new_xml->RES['SN'] ? $new_xml->RES['SN'] : $start;
+			$end = $end < $new_xml->RES['EN'] ? $new_xml->RES['EN'] : $end;
+			$xml[] = $new_xml;
+		}
 		//print "$request <br/>";
 
-		return new GSASearchResultSet($xml, array($term), $this->limit, $this->offset);
+		return new GSASearchResultSet($xml, array($term), $this->limit, $this->offset, $start, $end);
 	}
 
 
@@ -67,12 +89,14 @@ class SearchGSA extends SearchEngine {
  * @ingroup Search
  */
 class GSASearchResultSet extends SearchResultSet {
-	function GSASearchResultSet( $resultSet, $terms, $limit, $offset ) {
+	function GSASearchResultSet( $resultSet, $terms, $limit, $offset, $start, $end ) {
 		$this->mResultSet = $resultSet;
 		$this->mTerms = $terms;
 		$this->limit = $limit;
 		$this->offset = $offset;
-		$this->counter = 0;
+		$this->counter = array(0, 0);
+		$this->start = $start;
+		$this->end = $end;
 	}
 
 	function termMatches() {
@@ -80,14 +104,14 @@ class GSASearchResultSet extends SearchResultSet {
 	}
 
 	function hasSuggestion() {
-		return array_key_exists('Spelling', $this->mResultSet->children());
+		return array_key_exists('Spelling', $this->mResultSet[0]->children());
 	}
 	function getSuggestionQuery() {
-		return strip_tags($this->mResultSet->Spelling->Suggestion);
+		return strip_tags($this->mResultSet[0]->Spelling->Suggestion);
 	}
 
 	function getSuggestionSnippet() {
-		return $this->mResultSet->Spelling->Suggestion;
+		return $this->mResultSet[0]->Spelling->Suggestion;
 	}
 
 	function getTotalHits() {
@@ -96,20 +120,22 @@ class GSASearchResultSet extends SearchResultSet {
 	
 
 	function numRows() {
-		if ( $this->mResultSet->RES['SN'] < $this->offset )
+		if ( $this->start < $this->offset || empty($this->start) )
 			return 0;
-		$num = $this->mResultSet->RES['EN'] - $this->mResultSet->RES['SN'];
-		if ( $num > 0 )
-			$num++;
+		$num = $this->end - $this->start + 1;
 		return $num;
 	}
 
 	function next() {
-		if ( $this->counter < count($this->mResultSet->RES->R) ) {
-			return new GSASearchResult( $this->mResultSet->RES->R[$this->counter++] );
-		} else {
-			return false;
+
+		if ( $this->counter[1] >= count($this->mResultSet[$this->counter[0]]->RES->R) ) {
+			$this->counter[0]++;
+			$this->counter[1] = 0;
 		}
+
+		if ( $this->counter[0] >= count($this->mResultSet) ) 
+			return false;
+		return new GSASearchResult( $this->mResultSet[$this->counter[0]]->RES->R[$this->counter[1]++] );
 		
 	}
 
