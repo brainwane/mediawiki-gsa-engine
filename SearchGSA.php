@@ -84,8 +84,9 @@ class SearchGSA extends SearchEngine {
 	 * @access public
 	 */
 	function searchText( $term ) {
-		$resultSet = $this->db->resultObject( $this->db->query( $this->getQuery( $this->filter( $term ), true ) ) );
-		$xml = new SimpleXMLElement(file_get_contents("http://10.2.74.122/search?ie=&q=" .urlencode($term) . "&site=my_collection&output=xml&client=my_collection&btnG=Intranet+Search&access=p&lr=&ip=10.2.74.5&oe=&start=0&num=100"));
+		global $wgGSA;
+		$request = sprintf("%s?ie=&filter=0&q=" .urlencode($term) . "&site=my_collection&output=xml&client=my_collection&btnG=Intranet+Search&access=p&lr=&oe=&start=" . $this->offset . "&num=" . $this->limit, $wgGSA);
+		$xml = new SimpleXMLElement(file_get_contents($request));
 		return new GSASearchResultSet( $xml, array($term) );
 	}
 
@@ -97,8 +98,9 @@ class SearchGSA extends SearchEngine {
 	 * @access public
 	 */
 	function searchTitle( $term ) {
-		$resultSet = $this->db->resultObject( $this->db->query( $this->getQuery( $this->filter( $term ), false ) ) );
-		$xml = new SimpleXMLElement(file_get_contents("http://10.2.74.122/search?ie=&q=" .urlencode($term) . "&site=my_collection&output=xml&client=my_collection&btnG=Intranet+Search&access=p&lr=&ip=10.2.74.5&oe=&start=0&num=100"));
+		global $wgGSA;
+		$request = sprintf("%s?ie=&filter=0&as_occt=title&q=" .urlencode($term) . "&site=my_collection&output=xml&client=my_collection&btnG=Intranet+Search&access=p&lr=&ip=10.2.74.5&oe=&start=" . $this->offset . "&num=" . $this->limit, $wgGSA);
+		$xml = new SimpleXMLElement(file_get_contents($request));
 		return new GSASearchResultSet( $xml, array($term) );
 	}
 
@@ -245,9 +247,32 @@ class GSASearchResultSet extends SearchResultSet {
 	function termMatches() {
 		return $this->mTerms;
 	}
+	function getSuggestionQuery() {
+		print "here";
+		return $this->mResultSet->Spelling->Suggestion;
+	}
+	function getSuggestionSnippet() {
+		return "LSKJFS";
+	}
+
+	/**
+	 * Some search modes return a total hit count for the query
+	 * in the entire article database. This may include pages
+	 * in namespaces that would not be matched on the given
+	 * settings.
+	 *
+	 * Return null if no total hits number is supported.
+	 *
+	 * @return int
+	 * @access public
+	 */
+	function getTotalHits() {
+		return $this->mResultSet->RES->M;
+	}
+	
 
 	function numRows() {
-		return $this->mResultSet->RES->M;
+		return count($this->mResultSet->RES->R);
 	}
 
 	function next() {
@@ -259,9 +284,6 @@ class GSASearchResultSet extends SearchResultSet {
 		
 	}
 
-	function free() {
-		return;
-	}
 }
 
 class GSASearchResult extends SearchResult {
@@ -385,8 +407,7 @@ class GSASearchResult extends SearchResult {
 	 * @return string timestamp
 	 */
 	function getTimestamp(){
-		return "";
-		//return $this->mRevision->getTimestamp();
+		return $this->mRevision->getTimestamp();
 	}
 
 	/**
