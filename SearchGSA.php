@@ -1,21 +1,4 @@
 <?php
-# Copyright (C) 2004 Brion Vibber <brion@pobox.com>
-# http://www.mediawiki.org/
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-# http://www.gnu.org/copyleft/gpl.html
 
 /**
  * @file
@@ -23,70 +6,32 @@
  */
 
 /**
- * Search engine hook for MySQL 4+
+ * Search engine hook for Google Search Appliance
  * @ingroup Search
  */
 class SearchGSA extends SearchEngine {
-	var $strictMatching = true;
-
-	/** @todo document */
-	function __construct( $db ) {
-		$this->db = $db;
-	}
-
-	/** @todo document */
-	function parseQuery( $filteredText, $fulltext ) {
-		global $wgContLang;
-		$lc = SearchEngine::legalSearchChars(); // Minus format chars
-		$searchon = '';
-		$this->searchTerms = array();
-
-		# FIXME: This doesn't handle parenthetical expressions.
-		$m = array();
-		if( preg_match_all( '/([-+<>~]?)(([' . $lc . ']+)(\*?)|"[^"]*")/',
-			  $filteredText, $m, PREG_SET_ORDER ) ) {
-			foreach( $m as $terms ) {
-				if( $searchon !== '' ) $searchon .= ' ';
-				if( $this->strictMatching && ($terms[1] == '') ) {
-					$terms[1] = '+';
-				}
-				$searchon .= $terms[1] . $wgContLang->stripForSearch( $terms[2] );
-				if( !empty( $terms[3] ) ) {
-					// Match individual terms in result highlighting...
-					$regexp = preg_quote( $terms[3], '/' );
-					if( $terms[4] ) $regexp .= "[0-9A-Za-z_]+";
-				} else {
-					// Match the quoted term in result highlighting...
-					$regexp = preg_quote( str_replace( '"', '', $terms[2] ), '/' );
-				}
-				$this->searchTerms[] = $regexp;
-			}
-			wfDebug( "Would search with '$searchon'\n" );
-			wfDebug( 'Match with /' . implode( '|', $this->searchTerms ) . "/\n" );
-		} else {
-			wfDebug( "Can't understand search query '{$filteredText}'\n" );
-		}
-
-		$searchon = $this->db->strencode( $searchon );
-		$field = $this->getIndexField( $fulltext );
-		return " MATCH($field) AGAINST('$searchon' IN BOOLEAN MODE) ";
-	}
-
-	public static function legalSearchChars() {
-		return "\"*" . parent::legalSearchChars();
-	}
 
 	/**
 	 * Perform a full text search query and return a result set.
 	 *
 	 * @param string $term - Raw search term
-	 * @return MySQLSearchResultSet
+	 * @return GSASearchResultSet
 	 * @access public
 	 */
 	function searchText( $term ) {
-		global $wgGSA;
-		$request = sprintf("%s?ie=&filter=0&q=" .urlencode($term) . "&site=my_collection&output=xml&client=my_collection&btnG=Intranet+Search&access=p&lr=&oe=&start=" . $this->offset . "&num=" . $this->limit, $wgGSA);
+		global $wgGSA, $wgServer;
+
+		$params = array( 'as_sitesearch' => $wgServer,
+				 'q' => $term,
+				 'site' => 'my_collection',
+				 'client' => 'my_collection',
+				 'output' => 'xml',
+				 'start' => $this->offset,
+				 'num' => $this->limit );
+		$request = sprintf("%s?%s", $wgGSA, http_build_query($params));
 		$xml = new SimpleXMLElement(file_get_contents($request));
+		//print "$request <br/>";
+
 		return new GSASearchResultSet( $xml, array($term) );
 	}
 
@@ -94,144 +39,28 @@ class SearchGSA extends SearchEngine {
 	 * Perform a title-only search query and return a result set.
 	 *
 	 * @param string $term - Raw search term
-	 * @return MySQLSearchResultSet
+	 * @return GSASearchResultSet
 	 * @access public
 	 */
 	function searchTitle( $term ) {
-		global $wgGSA;
-		$request = sprintf("%s?ie=&filter=0&as_occt=title&q=" .urlencode($term) . "&site=my_collection&output=xml&client=my_collection&btnG=Intranet+Search&access=p&lr=&ip=10.2.74.5&oe=&start=" . $this->offset . "&num=" . $this->limit, $wgGSA);
+		global $wgGSA, $wgServer;
+
+		$params = array( 'as_sitesearch' => $wgServer,
+				 'as_occt' => 'title',
+				 'q' => $term,
+				 'site' => 'my_collection',
+				 'client' => 'my_collection',
+				 'output' => 'xml',
+				 'start' => $this->offset,
+				 'num' => $this->limit );
+		$request = sprintf("%s?%s", $wgGSA, http_build_query($params));
 		$xml = new SimpleXMLElement(file_get_contents($request));
+		//print "$request <br/>";
+
 		return new GSASearchResultSet( $xml, array($term) );
 	}
 
 
-	/**
-	 * Return a partial WHERE clause to exclude redirects, if so set
-	 * @return string
-	 * @private
-	 */
-	function queryRedirect() {
-		if( $this->showRedirects ) {
-			return '';
-		} else {
-			return 'AND page_is_redirect=0';
-		}
-	}
-
-	/**
-	 * Return a partial WHERE clause to limit the search to the given namespaces
-	 * @return string
-	 * @private
-	 */
-	function queryNamespaces() {
-		if( is_null($this->namespaces) )
-			return '';  # search all
-		$namespaces = implode( ',', $this->namespaces );
-		if ($namespaces == '') {
-			$namespaces = '0';
-		}
-		return 'AND page_namespace IN (' . $namespaces . ')';
-	}
-
-	/**
-	 * Return a LIMIT clause to limit results on the query.
-	 * @return string
-	 * @private
-	 */
-	function queryLimit() {
-		return $this->db->limitResult( '', $this->limit, $this->offset );
-	}
-
-	/**
-	 * Does not do anything for generic search engine
-	 * subclasses may define this though
-	 * @return string
-	 * @private
-	 */
-	function queryRanking( $filteredTerm, $fulltext ) {
-		return '';
-	}
-
-	/**
-	 * Construct the full SQL query to do the search.
-	 * The guts shoulds be constructed in queryMain()
-	 * @param string $filteredTerm
-	 * @param bool $fulltext
-	 * @private
-	 */
-	function getQuery( $filteredTerm, $fulltext ) {
-		return $this->queryMain( $filteredTerm, $fulltext ) . ' ' .
-			$this->queryRedirect() . ' ' .
-			$this->queryNamespaces() . ' ' .
-			$this->queryRanking( $filteredTerm, $fulltext ) . ' ' .
-			$this->queryLimit();
-	}
-
-
-	/**
-	 * Picks which field to index on, depending on what type of query.
-	 * @param bool $fulltext
-	 * @return string
-	 */
-	function getIndexField( $fulltext ) {
-		return $fulltext ? 'si_text' : 'si_title';
-	}
-
-	/**
-	 * Get the base part of the search query.
-	 * The actual match syntax will depend on the server
-	 * version; MySQL 3 and MySQL 4 have different capabilities
-	 * in their fulltext search indexes.
-	 *
-	 * @param string $filteredTerm
-	 * @param bool $fulltext
-	 * @return string
-	 * @private
-	 */
-	function queryMain( $filteredTerm, $fulltext ) {
-		$match = $this->parseQuery( $filteredTerm, $fulltext );
-		$page        = $this->db->tableName( 'page' );
-		$searchindex = $this->db->tableName( 'searchindex' );
-		return 'SELECT page_id, page_namespace, page_title ' .
-			"FROM $page,$searchindex " .
-			'WHERE page_id=si_page AND ' . $match;
-	}
-
-	/**
-	 * Create or update the search index record for the given page.
-	 * Title and text should be pre-processed.
-	 *
-	 * @param int $id
-	 * @param string $title
-	 * @param string $text
-	 */
-	function update( $id, $title, $text ) {
-		$dbw = wfGetDB( DB_MASTER );
-		$dbw->replace( 'searchindex',
-			array( 'si_page' ),
-			array(
-				'si_page' => $id,
-				'si_title' => $title,
-				'si_text' => $text
-			), __METHOD__ );
-	}
-
-	/**
-	 * Update a search index record's title only.
-	 * Title should be pre-processed.
-	 *
-	 * @param int $id
-	 * @param string $title
-	 */
-    function updateTitle( $id, $title ) {
-		$dbw = wfGetDB( DB_MASTER );
-
-		$dbw->update( 'searchindex',
-			array( 'si_title' => $title ),
-			array( 'si_page'  => $id ),
-			__METHOD__,
-			array( $dbw->lowPriorityOption() ) );
-	}
 }
 
 /**
@@ -247,25 +76,18 @@ class GSASearchResultSet extends SearchResultSet {
 	function termMatches() {
 		return $this->mTerms;
 	}
-	function getSuggestionQuery() {
-		print "here";
-		return $this->mResultSet->Spelling->Suggestion;
+
+	function hasSuggestion() {
+		return array_key_exists('Spelling', $this->mResultSet->children());
 	}
-	function getSuggestionSnippet() {
-		return "LSKJFS";
+	function getSuggestionQuery() {
+		return strip_tags($this->mResultSet->Spelling->Suggestion);
 	}
 
-	/**
-	 * Some search modes return a total hit count for the query
-	 * in the entire article database. This may include pages
-	 * in namespaces that would not be matched on the given
-	 * settings.
-	 *
-	 * Return null if no total hits number is supported.
-	 *
-	 * @return int
-	 * @access public
-	 */
+	function getSuggestionSnippet() {
+		return $this->mResultSet->Spelling->Suggestion;
+	}
+
 	function getTotalHits() {
 		return $this->mResultSet->RES->M;
 	}
@@ -355,15 +177,8 @@ class GSASearchResult extends SearchResult {
 	 * @return string highlighted text snippet, null (and not '') if not supported 
 	 */
 	function getTextSnippet($terms){
-		global $wgUser, $wgAdvancedSearchHighlighting;
 		$this->initText();
 		return $this->gsa_row->S;
-		list($contextlines,$contextchars) = SearchEngine::userHighlightPrefs($wgUser);
-		$h = new SearchHighlighter();
-		if( $wgAdvancedSearchHighlighting )
-			return $h->highlightText( $this->mText, $terms, $contextlines, $contextchars );
-		else
-			return $h->highlightSimple( $this->mText, $terms, $contextlines, $contextchars );
 	}
 	
 	/**
