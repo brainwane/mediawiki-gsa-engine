@@ -32,7 +32,7 @@ class SearchGSA extends SearchEngine {
 		$xml = new SimpleXMLElement(file_get_contents($request));
 		//print "$request <br/>";
 
-		return new GSASearchResultSet( $xml, array($term) );
+		return new GSASearchResultSet($xml, array($term), $this->limit, $this->offset);
 	}
 
 	/**
@@ -57,7 +57,7 @@ class SearchGSA extends SearchEngine {
 		$xml = new SimpleXMLElement(file_get_contents($request));
 		//print "$request <br/>";
 
-		return new GSASearchResultSet( $xml, array($term) );
+		return new GSASearchResultSet($xml, array($term), $this->limit, $this->offset);
 	}
 
 
@@ -67,9 +67,11 @@ class SearchGSA extends SearchEngine {
  * @ingroup Search
  */
 class GSASearchResultSet extends SearchResultSet {
-	function GSASearchResultSet( $resultSet, $terms ) {
+	function GSASearchResultSet( $resultSet, $terms, $limit, $offset ) {
 		$this->mResultSet = $resultSet;
 		$this->mTerms = $terms;
+		$this->limit = $limit;
+		$this->offset = $offset;
 		$this->counter = 0;
 	}
 
@@ -89,12 +91,17 @@ class GSASearchResultSet extends SearchResultSet {
 	}
 
 	function getTotalHits() {
-		return $this->mResultSet->RES->M;
+		return null;
 	}
 	
 
 	function numRows() {
-		return count($this->mResultSet->RES->R);
+		if ( $this->mResultSet->RES['SN'] < $this->offset )
+			return 0;
+		$num = $this->mResultSet->RES['EN'] - $this->mResultSet->RES['SN'];
+		if ( $num > 0 )
+			$num++;
+		return $num;
 	}
 
 	function next() {
@@ -117,7 +124,7 @@ class GSASearchResult extends SearchResult {
 		$this->gsa_row = $row;
 
 		$url = preg_replace(sprintf("/%s%s.*\/(.*)/", preg_quote($wgServer, '/'), 
-				preg_quote("/images",'/')), "$wgServer/Image:$1", $this->gsa_row->U);
+				preg_quote($wgUploadPath,'/')), "$wgServer/Image:$1", $this->gsa_row->U);
 
 		$this->mTitle = Title::newFromURL( str_replace("$wgServer/", '', $url) );
 		if( !is_null($this->mTitle) )
