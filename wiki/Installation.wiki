@@ -1,4 +1,5 @@
 #summary Extension Installation
+#labels Featured,Phase-Deploy
 
 = Summary =
 
