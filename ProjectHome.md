@@ -1,0 +1,1 @@
+This SearchEngine class allows mediawiki to use a Google search appliance for searches.
